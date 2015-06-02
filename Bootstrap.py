@@ -90,6 +90,7 @@ def bootstrap(game, equilibria, intervals = [95], statistic=regret, method="resa
 	To run a replicator dynamics bootstrap:
 		bootstrap(game, eq, replicator_dynamics)
 	"""
+	
 	boot_lists = [[] for x in xrange(0,len(equilibria))]
 	method = getattr(game, method)
 	for __ in range(points):
@@ -113,6 +114,8 @@ def checkIntervals(game, equilibria, intervals=[95]):
 	"""
 	This function is just to test the results of the bootstrap function above
 	"""
+	
+	print "--Manual Test--"
 	
 	#Find weights of payoffs for each equilibrium
 	weights = []
@@ -162,13 +165,20 @@ def checkIntervals(game, equilibria, intervals=[95]):
 	#Calculate maximum regret for each equilibrium using each combination
 			distributions[x].append(max(roles))
 
+
 	#Find nth percentiles of each equilibrium's regret distribution
+	conf_intervals = [{} for x in xrange(0,len(equilibria))]
+	count = 0
+	
 	for distribution in distributions:
 		for interval in intervals:
-			percent = np.percentile(distribution,interval)
+			percent  = np.percentile(distribution,interval)
 			if(percent<0):
 				percent = 0
-			print str(interval) + " " + str(percent)
+			conf_intervals[count][interval] = percent
+		count = count + 1
+		
+	print to_JSON_str(conf_intervals,indent=None)
 
 def parse_args():
     parser = io_parser()
@@ -176,6 +186,7 @@ def parse_args():
         " input games for which confidence intervals should be calculated.")
     parser.add_argument("--interval", dest='intervals', metavar='INTERVALS',type = float, nargs = '+', help = "List of confidence intervals to calculate (default = [95])",default = [95])
     parser.add_argument("--point", metavar = 'POINTS', type = int, default = 1000, help = "Number of points to sample (default = 1000)")
+    parser.add_argument("--check",action="store_true", help="Check the bootstrap confidence intervals manually (DO NOT USE for games larger than 3x2)")
     return parser.parse_args()
 
 
@@ -191,7 +202,8 @@ def main():
 		intervals = [intervals]
 	results = bootstrap(game,profiles,intervals,points = point)
 	print to_JSON_str(results,indent=None)
-	checkIntervals(game,profiles, intervals)
+	if args.check:
+		checkIntervals(game,profiles,intervals)
 
 
 if __name__ == "__main__":
