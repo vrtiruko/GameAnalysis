@@ -1,9 +1,10 @@
 import numpy as np
 
-from itertools import product, combinations_with_replacement as CwR
+from itertools import product, combinations_with_replacement as CwR, izip
 from collections import namedtuple
 from string import join
 from random import choice
+from bisect import bisect
 
 from HashableClasses import h_dict
 from BasicFunctions import flatten, game_size, one_line, prod, profile_repetitions
@@ -215,6 +216,16 @@ class Game(dict):
 		else:
 			return values
 
+	def getWeights(self,mix):
+		self.makeArrays()
+		try:
+			weights = ((mix+tiny)**self.counts).prod(1).prod(1).reshape(self.values.shape[0], 1, 1) * self.dev_reps / (mix+tiny)
+		except ValueError:
+			weights = ((mix+tiny)**self.counts).prod(1).reshape(self.values.shape[0], 1) * self.dev_reps / (mix+tiny)
+		for weight in weights:
+			weight[0] =  [ round(elem, 2) for elem in weight[0] ]
+		return weights
+	
 	def allProfiles(self):
 		return [Profile({r:{s:p[self.index(r)].count(s) for s in set(p[ \
 				self.index(r)])} for r in self.roles}) for p in product(*[ \
@@ -418,7 +429,10 @@ class SampleGame(Game):
 		self.sample_values = []
 		self.min_samples = float("inf")
 		self.max_samples = 0
+		self.sort_indices = {}
+		self.idx_tracker = []
 		Game.__init__(self, *args, **kwargs)
+		self.sortArrays()
 
 	def addProfile(self, role_payoffs):
 		Game.addProfile(self, role_payoffs)
@@ -444,8 +458,37 @@ class SampleGame(Game):
 		self.sample_values.append(np.array(samples))
 	
 	def getPayoffData(self, profile, role, strategy):
-		v = self.sample_values[self[profile]]
-		return v[self.index(role), self.index(role,strategy)]
+		bst = bisect(self.idx_tracker,self[profile]) - 1
+		v = self.sample_values[bst]
+		return v[self[profile]-self.idx_tracker[bst],self.index(role), self.index(role,strategy)]
+
+	def sortArrays(self):
+        # Sort self.sample_values, self.values, self.counts, self.dev_reps
+		profiles = list(self.allProfiles())
+		sorted_lists = sorted(izip(self.sample_values,self.values,self.counts,self.dev_reps,profiles),reverse = False, key = lambda x: x[0].shape[2])
+		self.sample_values,self.values,self.counts,self.dev_reps,profiles = [[x[i] for x in sorted_lists] for i in range(5)]
+        # Scan to create dictionary of indices for each #observations
+        # Set profile indices (Function: toProfile)
+		start_idx = 0
+		end_idx = 0
+		size = self.sample_values[0].shape[2]
+		self.idx_tracker.append(0)
+		for sample_val,profile in zip(self.sample_values,profiles):
+			if (sample_val.shape[2]!=size):
+				self.sort_indices[size] = [start_idx,end_idx]
+				self.idx_tracker.append(end_idx)
+				start_idx = end_idx
+				size = sample_val.shape[2]
+			self[profile] = end_idx
+			end_idx = end_idx + 1
+		self.sort_indices[size] = [start_idx,end_idx]
+		self.idx_tracker.append(len(self.sample_values))
+		# Convert self.sample_values from list of 3D to list of 4D arrays
+		tmp = []
+		for size in self.sort_indices.keys():
+			tmp.append(np.array(self.sample_values[self.sort_indices[size][0]:self.sort_indices[size][1]], dtype=float))
+		self.sample_values = tmp
+
 
 	def resample(self, pair="game"):
 		"""
@@ -458,17 +501,14 @@ class SampleGame(Game):
 		if pair == "payoff":
 			raise NotImplementedError("TODO")
 		elif pair == "profile":
-			self.values = map(lambda p: np.average(p, 2, weights= \
-					np.random.multinomial(len(p[0,0]), np.ones( \
-					len(p[0,0])) / len(p[0,0]))), self.sample_values)
-		elif pair == "game":#TODO: handle ragged arrays
-			if isinstance(self.sample_values, list):
-				self.sample_values = np.array(self.sample_values, dtype=float)
-			s = self.sample_values.shape[3]
-			self.values = np.average(self.sample_values, 3, weights= \
-					np.random.multinomial(s, np.ones(s)/s))
+			raise NotImplementedError("TODO")
+		elif pair == "game":
+			#Generate self.values from self.sample_values
+			for sample_val,size in zip(self.sample_values,self.sort_indices.keys()):
+				self.values[self.sort_indices[size][0]:self.sort_indices[size][1]] = np.average(sample_val, 3, weights= np.random.multinomial(size, np.ones(size)/size))
 
-	def singleSample(self):
+
+	def singleSample(self): #NO LONGER WORKS WITH NEW SAMPLE_VALUES STRUCTURE
 		"""Makes self.values be a single sample from each sample set."""
 		if self.max_samples == self.min_samples:
 			self.makeArrays()
@@ -481,7 +521,12 @@ class SampleGame(Game):
 		return self
 
 	def reset(self):#TODO: handle ragged arrays
+		"""
+		STILL WORKS (?)
 		self.values = map(lambda p: np.average(p,2), self.sample_values)
+		"""
+		for sample_val,size in zip(self.sample_values,self.sort_indices.keys()):
+			self.values[self.sort_indices[size][0]:self.sort_indices[size][1]] = map(lambda p: np.average(p,2),sample_val)
 
 	def toJSON(self):
 		"""
@@ -492,10 +537,11 @@ class SampleGame(Game):
 		game_dict["strategies"] = self.strategies
 		game_dict["profiles"] = []
 		for prof in self:
-			game_dict["profiles"].append({role:[(strat, prof[role][strat], \
-					list(self.sample_values[self[prof]][self.index(role), \
-					self.index(role, strat)])) for strat in prof[role]] for \
-					role in prof})
+			for sample_val in self.sample_values:
+				game_dict["profiles"].append({role:[(strat, prof[role][strat], \
+						list(sample_val[self[prof]][self.index(role), \
+						self.index(role, strat)])) for strat in prof[role]] for \
+						role in prof})
 		return game_dict
 
 	def to_TB_JSON(self):
