@@ -131,10 +131,13 @@ def checkIntervals(game, equilibria, intervals=[95]):
 			row = []
 			for strategy,n in zip(game.strategies[role],number):
 				payoff = game.getPayoffData(game.toProfile(profile),role,strategy)
-				combinations = list(product(payoff,repeat=len(payoff)))
 				tmp = []
-				for combination in combinations:
-					tmp.append(float(np.sum(combination))/float(len(combination)))
+				if np.count_nonzero(payoff) > 0:
+					combinations = list(product(payoff,repeat=len(payoff)))
+					for combination in combinations:
+						tmp.append(float(np.sum(combination))/float(len(combination)))
+				else:
+					tmp.append(0)
 				avgs.append(tmp)
 				strat_count = strat_count + 1
 			role_count = role_count + 1
@@ -144,7 +147,7 @@ def checkIntervals(game, equilibria, intervals=[95]):
 
 	#Find all possible combinations of the averages
 	for combination in list(product(*(avgs))):
-		combination = np.array(combination).reshape(prof_count,role_count/prof_count,strat_count/prof_count)
+		combination = np.array(combination).reshape(prof_count,role_count/prof_count,strat_count/role_count)
 		for x,weight,equilibrium in zip(xrange(0,len(weights)),weights,equilibria):
 			strategy_vals = (combination*weight).sum(0)
 			role_vals = (strategy_vals*equilibrium).sum(1)
@@ -166,68 +169,6 @@ def checkIntervals(game, equilibria, intervals=[95]):
 			if(percent<0):
 				percent = 0
 			print str(interval) + " " + str(percent)
-		
-	"""
-	combinations[0] = np.array(combinations[0])
-	combinations[0] = combinations[0].reshape(prof_count,role_count/prof_count,strat_count/prof_count)
-	strategy_vals = (combinations[0]*weights[1]).sum(0)
-	print strategy_vals
-	role_vals = (strategy_vals*equilibria[1]).sum(1)
-	print role_vals
-	roles = []
-	for role in game.roles:
-		strategies = []
-		for strategy in game.strategies[role]:
-			r = game.index(role)
-			s = game.index(role,strategy)
-			strategies.append(strategy_vals[r][s] - role_vals[r])
-		roles.append(max(strategies))
-	print max(roles)
-
-
-	# Regret for 100% Bravo
-	# 2x2 Game
-	#combinations = list(product(avgs[2][0],avgs[1][0]))
-	# 3x2 Game
-	combinations = list(product(avgs[3][0],avgs[2][0]))
-	distribution = []
-	for combination in combinations:
-		distribution.append(combination[1]-combination[0])
-	for interval in intervals:
-		percent = np.percentile(distribution,interval)
-		if(percent<0):
-			percent = 0
-		print str(interval) + " " + str(percent)
-
-	# Regret for 100% Alpha
-	combinations = list(product(avgs[0][0],avgs[1][1]))
-	distribution = []
-	for combination in combinations:
-		distribution.append(combination[1]-combination[0])
-	for interval in intervals:
-		percent = np.percentile(distribution,interval)
-		if(percent<0):
-			percent = 0
-		print str(interval) + " " + str(percent)
-
-	#Regret for 50% Alpha 50% Bravo
-		#Generate lists of averages
-	#2x2 Game
-	#combinations_all = list(product(avgs[1][1],avgs[0][0],avgs[1][0],avgs[2][0]))
-	#3x2 Game
-	combinations_all = list(product(avgs[0][0],avgs[0][1],avgs[1][0],avgs[1][1],avgs[2][0],avgs[2][1],avgs[3][0],avgs[3][1]))
-	print combinations_all[0]
-	print combinations_all[0]*weights[2]
-	distribution = []
-	for combination in combinations_all:
-		distribution.append(np.max([float(np.mean([combination[1],combination[2]])),float(np.mean([combination[0],combination[3]]))])-float(np.mean(combination)))
-
-	for interval in intervals:
-		percent = np.percentile(distribution,interval)
-		if(percent<0):
-			percent = 0
-		print str(interval) + " " + str(percent)
-	"""
 
 def parse_args():
     parser = io_parser()
