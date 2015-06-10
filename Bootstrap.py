@@ -13,7 +13,7 @@ from random import sample
 from copy import copy, deepcopy
 from functools import partial
 
-from itertools import product, combinations_with_replacement as CwR, repeat
+from itertools import product, combinations_with_replacement as CwR, repeat,izip
 import numpy as np
 import json
 
@@ -92,9 +92,11 @@ def bootstrap(game, equilibria, intervals = [95], statistic=regret, method="resa
 	"""
 	
 	boot_lists = [[] for x in xrange(0,len(equilibria))]
+	combinations = []
 	method = getattr(game, method)
 	for __ in range(points):
 		method(*method_args)
+		combinations.append(np.array(game.values))
 		count = 0
 		for eq in equilibria:
 			boot_lists[count].append(statistic(game, eq))
@@ -110,6 +112,71 @@ def bootstrap(game, equilibria, intervals = [95], statistic=regret, method="resa
 		count = count + 1
 	return conf_intervals
 
+def getAverages(payoff):
+	distribution_cwr = list(CwR(payoff, r = len(payoff)))
+	distribution_prod = list(product(payoff, repeat = len(payoff)))
+	distribution_cwr = [list(np.sort(elem)) for elem in distribution_cwr]
+	distribution_prod = [list(np.sort(elem)) for elem in distribution_prod]
+	counts = []
+	count = 0
+	for elemc in distribution_cwr:
+		for elemp in distribution_prod:
+			if list(elemc) == elemp:
+				count = count + 1
+		counts.append(count)
+		count = 0
+	
+	if np.count_nonzero(distribution_cwr) > 0:
+		sum = np.sum(counts)
+		counts = [elem/float(sum) for elem in counts]
+	else:
+		counts = [elem/elem for elem in counts]
+	sum = len(distribution_cwr[0])
+	distribution_cwr = [np.sum(elem)/sum for elem in distribution_cwr]
+	return distribution_cwr,counts
+
+def getCombinations(averages,averages_counts):
+	indices = []
+	sizes = []
+	curr_size = len(averages[0])
+	curr_idx = 0
+	for elem in averages:
+		if(len(elem)!=curr_size):
+			curr_idx = curr_idx + 1
+			curr_size = len(elem)
+		indices.append(curr_idx)
+		sizes.append(len(elem))
+	
+	poss = []
+	for size in np.unique(sizes):
+		poss.append(list(xrange(size)))
+
+	poss = list(product(*poss))
+	
+	combination = []
+	count = 1
+	combinations = []
+	combo_counts = []
+	for elem in poss:
+		for avg,index in zip(averages,indices):
+			combination.append(avg[elem[index]])
+		for idx in np.unique(indices):
+			count = count * averages_counts[idx][elem[idx]]
+		combinations.append(combination)
+		combo_counts.append(count)
+		combination = []
+		count = 1
+
+	"""
+	print combinations
+	print combo_counts
+	print np.sum(combo_counts)
+	"""
+
+	return combinations, combo_counts
+
+
+
 def checkIntervals(game, equilibria, intervals=[95]):
 	"""
 	This function is just to test the results of the bootstrap function above
@@ -124,6 +191,90 @@ def checkIntervals(game, equilibria, intervals=[95]):
 		tmp = np.array(game.getWeights(equilibrium))
 		weights.append(tmp)
 
+	#Find all possible averages of the payoff data
+	avgs = []
+	avgs_counts= []
+	prof_count = 0
+	role_count = 0
+	strat_count = 0
+	for profile in game.counts:
+		for role,number in zip(game.roles,profile):
+			row = []
+			for strategy,n in zip(game.strategies[role],number):
+				payoff = game.getPayoffData(game.toProfile(profile),role,strategy)
+				avg,avg_counts = getAverages(payoff)
+				avgs.append(avg)
+				avgs_counts.append(avg_counts)
+				strat_count = strat_count + 1
+			role_count = role_count + 1
+		prof_count = prof_count + 1
+
+	#print avgs
+
+	#Fix avgs_counts
+	tmp = []
+	current = -1
+	for elem in avgs_counts:
+		if not tmp and not elem.count(1)==len(elem):
+			tmp.append(elem)
+			current = current + 1
+		if not elem.count(1)==len(elem) and not len(elem)==len(tmp[current]):
+			tmp.append(elem)
+			current = current + 1
+
+	avgs_counts = tmp
+	#print avgs_counts
+
+	distributions = [[] for x in xrange(0,len(weights))]
+
+	combinations,combo_counts = getCombinations(avgs,avgs_counts)
+
+
+	#Find all possible combinations of the averages
+	for combination,count in zip(combinations,combo_counts):
+		combination = np.array(combination).reshape(prof_count,role_count/prof_count,strat_count/role_count)
+		for x,weight,equilibrium in zip(xrange(0,len(weights)),weights,equilibria):
+			strategy_vals = (combination*weight).sum(0)
+			role_vals = (strategy_vals*equilibrium).sum(1)
+			roles = []
+			for role in game.roles:
+				strategies = []
+				for strategy in game.strategies[role]:
+					r = game.index(role)
+					s = game.index(role,strategy)
+					strategies.append(strategy_vals[r][s] - role_vals[r])
+				roles.append(max(strategies))
+	#Calculate maximum regret for each equilibrium using each combination
+			distributions[x].extend(repeat(max(roles),int(count*10000)))
+
+	#Find nth percentiles of each equilibrium's regret distribution
+	conf_intervals = [{} for x in xrange(0,len(equilibria))]
+	count = 0
+	
+	for distribution in distributions:
+		for interval in intervals:
+			percent  = np.percentile(distribution,interval)
+			if(percent<0):
+				percent = 0
+			conf_intervals[count][interval] = percent
+		count = count + 1
+		
+	print to_JSON_str(conf_intervals,indent=None)
+
+def checkIntervalsAll(game, equilibria, intervals=[95]):
+	"""
+		This function is just to test the results of the bootstrap function above
+		"""
+	
+	print "--Manual Test (All samples)--"
+	
+	#Find weights of payoffs for each equilibrium
+	weights = []
+	equilibria = [game.toArray(elem) for elem in equilibria]
+	for equilibrium in equilibria:
+		tmp = np.array(game.getWeights(equilibrium))
+		weights.append(tmp)
+	
 	#Find all possible averages of the payoff data
 	avgs = []
 	prof_count = 0
@@ -145,7 +296,7 @@ def checkIntervals(game, equilibria, intervals=[95]):
 				strat_count = strat_count + 1
 			role_count = role_count + 1
 		prof_count = prof_count + 1
-
+	
 	distributions = [[] for x in xrange(0,len(weights))]
 
 	#Find all possible combinations of the averages
@@ -162,7 +313,7 @@ def checkIntervals(game, equilibria, intervals=[95]):
 					s = game.index(role,strategy)
 					strategies.append(strategy_vals[r][s] - role_vals[r])
 				roles.append(max(strategies))
-	#Calculate maximum regret for each equilibrium using each combination
+			#Calculate maximum regret for each equilibrium using each combination
 			distributions[x].append(max(roles))
 
 
@@ -177,7 +328,7 @@ def checkIntervals(game, equilibria, intervals=[95]):
 				percent = 0
 			conf_intervals[count][interval] = percent
 		count = count + 1
-		
+
 	print to_JSON_str(conf_intervals,indent=None)
 
 def parse_args():
@@ -200,10 +351,12 @@ def main():
 		profiles = [profiles]
 	if not isinstance(intervals, list):
 		intervals = [intervals]
+	#checkDistribution()
 	results = bootstrap(game,profiles,intervals,points = point)
 	print to_JSON_str(results,indent=None)
 	if args.check:
 		checkIntervals(game,profiles,intervals)
+		checkIntervalsAll(game,profiles,intervals)
 
 
 if __name__ == "__main__":
