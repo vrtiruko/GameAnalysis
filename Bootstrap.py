@@ -91,6 +91,8 @@ def bootstrap(game, equilibria, intervals = [95], statistic=regret, method="resa
 		bootstrap(game, eq, replicator_dynamics)
 	"""
 	
+	print "--Bootstrap Values--"
+	
 	boot_lists = [[] for x in xrange(0,len(equilibria))]
 	combinations = []
 	method = getattr(game, method)
@@ -112,7 +114,12 @@ def bootstrap(game, equilibria, intervals = [95], statistic=regret, method="resa
 		count = count + 1
 	return conf_intervals
 
+def test():
+	list = [0.3,0.5,0.9,1.3]
+	print filter(lambda x: x>.7, list)[0]
+
 def getAverages(payoff):
+	#Get all possible averages of payoff data for a profile and the probability of each average
 	distribution_cwr = list(CwR(payoff, r = len(payoff)))
 	distribution_prod = list(product(payoff, repeat = len(payoff)))
 	distribution_cwr = [list(np.sort(elem)) for elem in distribution_cwr]
@@ -136,6 +143,7 @@ def getAverages(payoff):
 	return distribution_cwr,counts
 
 def getCombinations(averages,averages_counts):
+	#Get possible combinations of average where only averages with different amounts of payoff data are independent
 	indices = []
 	sizes = []
 	curr_size = len(averages[0])
@@ -166,12 +174,6 @@ def getCombinations(averages,averages_counts):
 		combo_counts.append(count)
 		combination = []
 		count = 1
-
-	"""
-	print combinations
-	print combo_counts
-	print np.sum(combo_counts)
-	"""
 
 	return combinations, combo_counts
 
@@ -209,8 +211,6 @@ def checkIntervals(game, equilibria, intervals=[95]):
 			role_count = role_count + 1
 		prof_count = prof_count + 1
 
-	#print avgs
-
 	#Fix avgs_counts
 	tmp = []
 	current = -1
@@ -223,7 +223,6 @@ def checkIntervals(game, equilibria, intervals=[95]):
 			current = current + 1
 
 	avgs_counts = tmp
-	#print avgs_counts
 
 	distributions = [[] for x in xrange(0,len(weights))]
 
@@ -245,15 +244,20 @@ def checkIntervals(game, equilibria, intervals=[95]):
 					strategies.append(strategy_vals[r][s] - role_vals[r])
 				roles.append(max(strategies))
 	#Calculate maximum regret for each equilibrium using each combination
-			distributions[x].extend(repeat(max(roles),int(count*10000)))
+			distributions[x].append(max(roles))
 
 	#Find nth percentiles of each equilibrium's regret distribution
 	conf_intervals = [{} for x in xrange(0,len(equilibria))]
 	count = 0
 	
 	for distribution in distributions:
+		probabilities = combo_counts
+		sorted_lists = sorted(izip(distribution,probabilities),reverse = False, key = lambda x: x[0])
+		distribution,probabilities = [[x[i] for x in sorted_lists] for i in range(2)]
+		probabilities = np.cumsum(probabilities)
 		for interval in intervals:
-			percent  = np.percentile(distribution,interval)
+			idx = next(x[0] for x in enumerate(probabilities) if x[1] >= interval/100.0)
+			percent  = distribution[idx]
 			if(percent<0):
 				percent = 0
 			conf_intervals[count][interval] = percent
@@ -351,7 +355,7 @@ def main():
 		profiles = [profiles]
 	if not isinstance(intervals, list):
 		intervals = [intervals]
-	#checkDistribution()
+	#test()
 	results = bootstrap(game,profiles,intervals,points = point)
 	print to_JSON_str(results,indent=None)
 	if args.check:
