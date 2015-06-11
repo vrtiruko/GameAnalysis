@@ -507,7 +507,6 @@ class SampleGame(Game):
 			for sample_val,size in zip(self.sample_values,self.sort_indices.keys()):
 				self.values[self.sort_indices[size][0]:self.sort_indices[size][1]] = np.average(sample_val, 3, weights= np.random.multinomial(size, np.ones(size)/size))
 
-
 	def singleSample(self): #NO LONGER WORKS WITH NEW SAMPLE_VALUES STRUCTURE
 		"""Makes self.values be a single sample from each sample set."""
 		if self.max_samples == self.min_samples:
